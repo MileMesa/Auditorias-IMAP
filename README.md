@@ -21,6 +21,10 @@ npm install
 npm run dev
 ```
 
+## Publicar en Render
+
+Configura el servicio como sitio estático, con `npm install && npm run build` como comando de compilación y `build` como directorio de publicación. Vite está configurado para generar allí los archivos de producción.
+
 ## Privacidad y límites
 
 - El lector procesa el Excel en el navegador y no llama a Gemini ni envía el archivo a una API.
