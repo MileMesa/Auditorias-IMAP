@@ -4,7 +4,7 @@ Prototipo local para diligenciar, consolidar y generar informes de auditoría cl
 
 ## Flujo disponible
 
-1. Carga una de las plantillas compatibles: RCV `R-GCAL101-76` (hojas `DM` y `HTA`) o control prenatal `R-GCAL101-71` (hoja `FORMATO FINAL`).
+1. Carga una de las plantillas compatibles: RCV `R-GCAL101-76` (hojas `DM` y `HTA`), control prenatal `R-GCAL101-71` (hoja `FORMATO FINAL`) o promoción y mantenimiento de la salud `R-GCAL101-72` (seis etapas de vida).
 2. Calaud normaliza el instrumento a secciones, criterios, grupos, marcas y capacidad de muestra. El número de secciones, criterios y consecutivos se adapta al archivo.
 3. Completa o corrige cada criterio como `Cumple`, `No cumple` o `N/A`.
 4. Consulta la adherencia, el avance por sección y los resultados por estándar o grupo cuando el instrumento los incluye.

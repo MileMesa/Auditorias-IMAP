@@ -85,7 +85,7 @@ function EmptyState({ onUpload }: { onUpload: () => void }) {
     <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-indigo-50 text-2xl text-indigo-700">✓</div>
     <h2 className="mt-4 text-xl font-bold text-slate-900">Carga la lista de chequeo para comenzar</h2>
     <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">Carga un instrumento de auditoría compatible. Calaud extrae sus criterios y marcas para preparar la captura, el tablero y un informe revisable por el equipo auditor.</p>
-    <p className="mt-2 text-xs text-slate-500">Plantillas incluidas: R-GCAL101-76 (DM/HTA) y R-GCAL101-71 (control prenatal).</p>
+    <p className="mt-2 text-xs text-slate-500">Plantillas incluidas: R-GCAL101-76 (DM/HTA), R-GCAL101-71 (control prenatal) y R-GCAL101-72 (seis etapas de vida).</p>
     <div className="mt-5"><Button variant="primary" onClick={onUpload}>Seleccionar Excel .xlsx</Button></div>
     <p className="mt-4 text-xs text-slate-500">No incluyas nombres, números de historia ni otros identificadores en notas o nombres de archivo.</p>
   </section>;

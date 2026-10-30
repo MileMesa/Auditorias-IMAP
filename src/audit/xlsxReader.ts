@@ -152,18 +152,22 @@ function normalize(value: CellValue): string {
   return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
 }
 
-function cpnRecordStarts(grid: SheetGrid): number[] {
+function recordStartsForHeader(grid: SheetGrid, headerRow: number, declaredRow = 5): number[] {
   const starts: number[] = [];
   for (let column = 1; column <= 512; column += 1) {
-    const statuses = [0, 1, 2].map((offset) => normalize(valueAt(grid, 10, column + offset)).replace(/[^A-Z]/g, ''));
+    const statuses = [0, 1, 2].map((offset) => normalize(valueAt(grid, headerRow, column + offset)).replace(/[^A-Z]/g, ''));
     if (statuses[0] === 'C' && statuses[1] === 'NC' && statuses[2] === 'NA') starts.push(column);
   }
   const declared = starts.filter((column) => {
-    const value = valueAt(grid, 5, column);
+    const value = valueAt(grid, declaredRow, column);
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
   });
   if (declared.length && declared.every((column, index) => column === starts[index])) return declared;
   return starts;
+}
+
+function cpnRecordStarts(grid: SheetGrid): number[] {
+  return recordStartsForHeader(grid, 10);
 }
 
 function isCriteriaSummary(value: CellValue): boolean {
@@ -226,6 +230,99 @@ function extractCpn(grid: SheetGrid, fileName: string): AuditModel {
   };
 }
 
+const pymStageDefinitions = [
+  { sheetName: 'PRIMERA INFANCIA', id: 'primera-infancia', name: 'Primera infancia' },
+  { sheetName: 'INFANCIA', id: 'infancia', name: 'Infancia' },
+  { sheetName: 'ADOLESCENCIA', id: 'adolescencia', name: 'Adolescencia' },
+  { sheetName: 'JUVENTUD', id: 'juventud', name: 'Juventud' },
+  { sheetName: 'ADULTEZ', id: 'adultez', name: 'Adultez' },
+  { sheetName: 'VEJEZ', id: 'vejez', name: 'Vejez' },
+] as const;
+
+function isPymFooter(value: CellValue): boolean {
+  const normalized = normalize(value);
+  return isCriteriaSummary(value)
+    || ['ELABORADO POR', 'REVISADO POR', 'FECHA DE REVISION', 'TODOS LOS DERECHOS RESERVADOS']
+      .some((prefix) => normalized.startsWith(prefix));
+}
+
+function extractPymSection(
+  files: Map<string, Uint8Array>,
+  strings: Element[],
+  sheetPath: string,
+  stage: typeof pymStageDefinitions[number],
+): AuditSection {
+  const grid = sheetGrid(xmlFile(files, sheetPath), strings, (row, column) => {
+    // Se omiten fecha de revisión, número de historia clínica y fecha de atención.
+    const allowedRow = row <= 5 || (row >= 9 && row <= 120);
+    return allowedRow && column <= 21;
+  });
+  const headerRow = Array.from({ length: 120 }, (_, index) => index + 1).find((row) =>
+    normalize(valueAt(grid, row, 1)).includes('CRITERIOS DE EVALUACION')
+      || normalize(valueAt(grid, row, 2)).includes('CRITERIOS DE EVALUACION'),
+  );
+  if (!headerRow) throw new Error(`No encontré la fila de criterios en la hoja ${stage.sheetName}.`);
+
+  const recordStarts = recordStartsForHeader(grid, headerRow);
+  if (recordStarts.length !== 6) {
+    throw new Error(`La hoja ${stage.sheetName} debe tener seis consecutivos con columnas C, NC y N/A.`);
+  }
+
+  const criteria: Criterion[] = [];
+  let activeCategory = 'Sin clasificación';
+  for (let row = headerRow + 1; row <= 120; row += 1) {
+    const rawCategory = valueAt(grid, row, 1);
+    const rawText = valueAt(grid, row, 2);
+    if (isPymFooter(rawCategory) || isPymFooter(rawText)) break;
+
+    const category = typeof rawCategory === 'string' ? rawCategory.trim() : '';
+    const text = typeof rawText === 'string' ? rawText.trim() : '';
+    if (category) activeCategory = category;
+    if (!text) continue;
+
+    criteria.push({
+      id: `R-GCAL101-72-${stage.id}-${row}`,
+      number: String(criteria.length + 1),
+      text,
+      sheetRow: row,
+      category: activeCategory,
+    });
+  }
+  if (!criteria.length) throw new Error(`La hoja ${stage.sheetName} no contiene criterios de auditoría.`);
+
+  return {
+    id: stage.id,
+    name: stage.name,
+    criteria,
+    records: makeRecords(criteria, recordStarts, grid),
+  };
+}
+
+function extractPym(
+  files: Map<string, Uint8Array>,
+  strings: Element[],
+  paths: { name: string; path: string }[],
+  fileName: string,
+): AuditModel {
+  const sections = pymStageDefinitions.map((stage) => {
+    const sheet = paths.find((candidate) => normalize(candidate.name) === stage.sheetName);
+    if (!sheet) throw new Error(`La plantilla R-GCAL101-72 no incluye la hoja ${stage.sheetName}.`);
+    return extractPymSection(files, strings, sheet.path, stage);
+  });
+  const version = fileName.match(/R-GCAL\d+-\d+/i)?.[0]?.toUpperCase() ?? 'R-GCAL101-72';
+  return {
+    title: 'Auditoría de historias clínicas · Promoción y mantenimiento de la salud',
+    instrumentName: 'Promoción y mantenimiento de la salud',
+    periodStart: '',
+    periodEnd: '',
+    samplingMethod: 'Muestra seleccionada por el auditor según protocolo institucional.',
+    sourceVersion: version,
+    scoring: { numerator: 'C', denominatorMarks: ['C', 'NC'], label: 'Cumple ÷ (Cumple + No cumple); N/A se excluye.' },
+    sections,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function extractRcvProgram(grid: SheetGrid, id: 'DM' | 'HTA', name: string, lastCriterionRow: number): AuditSection {
   const criteria: Criterion[] = [];
   for (let row = 12; row <= lastCriterionRow; row += 1) {
@@ -277,6 +374,10 @@ export async function readAuditWorkbook(file: File): Promise<AuditModel> {
     return extractRcv(files, strings, paths);
   }
 
+  const pymStageNames: ReadonlySet<string> = new Set(pymStageDefinitions.map((stage) => stage.sheetName));
+  const matchingPymSheets = paths.filter((sheet) => pymStageNames.has(normalize(sheet.name)));
+  if (matchingPymSheets.length) return extractPym(files, strings, paths, file.name);
+
   const cpnSheet = paths.find((sheet) => normalize(sheet.name) === 'FORMATO FINAL') ?? paths[0];
   if (cpnSheet) {
     const cpnGrid = sheetGrid(xmlFile(files, cpnSheet.path), strings, (row, column) => {
@@ -288,5 +389,5 @@ export async function readAuditWorkbook(file: File): Promise<AuditModel> {
       return extractCpn(cpnGrid, file.name);
     }
   }
-  throw new Error('No reconocí esta plantilla. Por ahora Calaud admite R-GCAL101-76 (DM/HTA) y el registro CPN R-GCAL101-71.');
+  throw new Error('No reconocí esta plantilla. Calaud admite R-GCAL101-76 (DM/HTA), R-GCAL101-71 (control prenatal) y R-GCAL101-72 (promoción y mantenimiento de la salud).');
 }
